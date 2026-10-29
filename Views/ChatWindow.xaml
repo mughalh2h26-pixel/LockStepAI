@@ -37,18 +37,35 @@
             <!-- Input Area -->
             <Border Grid.Row="2" Background="#121212" CornerRadius="0,0,16,16" Padding="10">
                 <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox x:Name="InputBox" Background="#0A0A0A" Foreground="#FFFFFF" 
+                    <TextBox x:Name="InputBox" Grid.Row="0" Background="#0A0A0A" Foreground="#FFFFFF" 
                              BorderThickness="1" BorderBrush="#333333" Padding="10" FontSize="13" 
                              CaretBrush="#FFFFFF" KeyDown="InputBox_KeyDown"/>
-                    <Button Grid.Column="1" Content="&#xE724;" FontFamily="Segoe MDL2 Assets"
+                    <!-- Replace the Send Button with this -->
+                    <Button x:Name="SendStopButton" Grid.Row="0" Grid.Column="1" Content="&#xE724;" FontFamily="Segoe MDL2 Assets"
                             Width="35" Height="35" Margin="8,0,0,0"
                             Background="#FFFFFF" Foreground="#000000" BorderThickness="0"
-                            Cursor="Hand" Click="SendButton_Click"/>
-                </Grid>
+                            Cursor="Hand" Click="SendStopButton_Click"/>
+                    <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,6,0,0">
+                        <TextBlock FontSize="10" VerticalAlignment="Center">
+                            <Hyperlink Click="Report_Click" Foreground="#78C7FF"
+                                       TextDecorations="Underline">Report</Hyperlink>
+                        </TextBlock>
+                        <TextBlock x:Name="VersionLabel" Foreground="#D0D0D0"
+                                   FontSize="10" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="AI can make mistakes, all processing is on device"
+                                   Foreground="#C4C4C4" FontSize="10" Margin="8,0,0,0"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    </Grid> 
             </Border>
 
             <!-- History Menu Sidebar -->

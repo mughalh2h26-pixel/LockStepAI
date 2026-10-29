@@ -9,16 +9,11 @@ namespace LockStepAI.Views
             InitializeComponent();
         }
 
-        // We are keeping this method so App.xaml.cs doesn't crash when it tries to update the status.
-        // It just does nothing now since there is no text to update.
         public void UpdateStatus(string text)
         {
-            // Do nothing, we want a clean image-only splash screen
+            StatusText.Text = text;
         }
 
-        private void TextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-
-        }
+        public void UpdateProgress(double percent) => DownloadProgress.Value = Math.Clamp(percent, 0, 100);
     }
 }

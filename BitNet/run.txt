@@ -1,1 +1,0 @@
-.\llama-cli.exe -m ggml-model-i2_s.gguf -cnv -t 6

@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LockStepAI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+966020f67bc406e04c2ebe5a12c6947719caeb50")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8bdb1b5cdecc503b31e8437b0dcbb8918f08c709")]
 [assembly: System.Reflection.AssemblyProductAttribute("LockStepAI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LockStepAI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

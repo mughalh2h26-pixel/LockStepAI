@@ -1,11 +1,23 @@
 ﻿<Window x:Class="LockStepAI.Views.SplashWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Starting LockStep" Height="400" Width="400"
+        Title="LockStep AI" Height="300" Width="400"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" Topmost="True">
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize">
 
-    <Image Source="pack://application:,,,/Assets/icon.png" 
-           Width="350" Height="350" 
-           Stretch="Uniform"/>
+    <Border Background="#080808" CornerRadius="12" BorderBrush="#303030" BorderThickness="1">
+        <Grid Margin="28">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,18,0,0">
+                <Image Source="pack://application:,,,/Assets/icon.png" Width="68" Height="68" Stretch="Uniform"/>
+                <TextBlock Text="LockStep AI" Foreground="#FF4136" FontSize="23" FontWeight="Bold"
+                           HorizontalAlignment="Center" Margin="0,8,0,0"/>
+            </StackPanel>
+            <StackPanel VerticalAlignment="Bottom" Margin="0,0,0,14">
+                <TextBlock x:Name="StatusText" Text="Preparing LockStep AI..." Foreground="#D0D0D0"
+                           FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                <ProgressBar x:Name="DownloadProgress" Height="8" Minimum="0" Maximum="100" Value="0"
+                             Background="#242424" Foreground="#10B981" BorderThickness="0"/>
+            </StackPanel>
+        </Grid>
+    </Border>
 </Window>

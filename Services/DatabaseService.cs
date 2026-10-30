@@ -36,6 +36,14 @@ namespace LockStepAI.Services
                     Content TEXT NOT NULL,
                     CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(ChatId) REFERENCES Chats(Id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS HallucinationReports (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ChatId INTEGER NOT NULL,
+                    Prompt TEXT NOT NULL,
+                    Response TEXT NOT NULL,
+                    Reason TEXT NOT NULL,
+                    ReportedAt DATETIME DEFAULT CURRENT_TIMESTAMP
                 );";
             command.ExecuteNonQuery();
         }
@@ -82,6 +90,19 @@ namespace LockStepAI.Services
             command.Parameters.AddWithValue("$c", chatId);
             command.Parameters.AddWithValue("$r", role);
             command.Parameters.AddWithValue("$m", content);
+            command.ExecuteNonQuery();
+        }
+
+        public void SaveHallucinationReport(int chatId, string prompt, string response, string reason)
+        {
+            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO HallucinationReports (ChatId, Prompt, Response, Reason) VALUES ($chatId, $prompt, $response, $reason);";
+            command.Parameters.AddWithValue("$chatId", chatId);
+            command.Parameters.AddWithValue("$prompt", prompt);
+            command.Parameters.AddWithValue("$response", response);
+            command.Parameters.AddWithValue("$reason", reason);
             command.ExecuteNonQuery();
         }
 

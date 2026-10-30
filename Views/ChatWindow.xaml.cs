@@ -24,6 +24,7 @@ namespace LockStepAI.Views
 
         private bool _isProcessing = false;
         private bool _isGenerating = false;
+        private bool _hasShownPerfWarning = false;
         private int _currentChatId = 0;
         private CancellationTokenSource? _cts;
 
@@ -183,13 +184,34 @@ namespace LockStepAI.Views
             _db.SaveMessage(_currentChatId, "user", text);
 
             // Generation Prep
-            var (assistantTextBox, statsTextBlock) = AddEmptyAssistantBubble();
+            int reportChatId = _currentChatId;
+            var (assistantTextBox, statsTextBlock, reportButton) = AddEmptyAssistantBubble();
             var sb = new StringBuilder();
             _cts = new CancellationTokenSource();
+            var detector = new HallucinationDetector();
+            bool hallucinationCaught = false;
+            bool generationStoppedByUser = false;
+            bool generationFailed = false;
+            int hallucinationTruncateAt = 0;
+            string hallucinationReason = "User reported response";
 
             // 🚨 START STOPWATCH
             var stopwatch = Stopwatch.StartNew();
             int tokenCount = 0;
+
+            reportButton.Click += (_, _) =>
+            {
+                try
+                {
+                    _db.SaveHallucinationReport(reportChatId, text, assistantTextBox.Text, hallucinationReason);
+                    reportButton.Content = "Saved";
+                    reportButton.IsEnabled = false;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Could not save report: {ex.Message}", "Report Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            };
 
             try
             {
@@ -199,17 +221,29 @@ namespace LockStepAI.Views
                     tokenCount++;
                     assistantTextBox.Text = sb.ToString();
                     ChatScroll.ScrollToEnd();
+
+                    var detection = detector.Check(sb.ToString());
+                    if (detection != null)
+                    {
+                        hallucinationCaught = true;
+                        hallucinationTruncateAt = detection.TruncateAt;
+                        hallucinationReason = detection.Reason;
+                        _cts.Cancel();
+                        break;
+                    }
                 }
 
-                _db.SaveMessage(_currentChatId, "assistant", sb.ToString());
+            }
+            catch (OperationCanceledException) when (hallucinationCaught)
+            {
             }
             catch (OperationCanceledException)
             {
-                assistantTextBox.Text = sb.ToString() + "\n\n[Generation stopped]";
-                _db.SaveMessage(_currentChatId, "assistant", assistantTextBox.Text);
+                generationStoppedByUser = true;
             }
             catch (Exception ex)
             {
+                generationFailed = true;
                 this.WindowState = WindowState.Normal;
                 this.Activate();
                 assistantTextBox.Text = $"Error: {ex.Message}";
@@ -220,12 +254,43 @@ namespace LockStepAI.Views
                 // 🚨 STOP STOPWATCH AND CALCULATE SPEED
                 stopwatch.Stop();
                 double elapsedSeconds = stopwatch.Elapsed.TotalSeconds;
+
+                if (hallucinationCaught)
+                {
+                    int safeLength = Math.Clamp(hallucinationTruncateAt, 0, sb.Length);
+                    string cleanText = sb.ToString(0, safeLength).TrimEnd();
+                    assistantTextBox.Text = string.IsNullOrEmpty(cleanText)
+                        ? "[Repetitive output stopped]"
+                        : cleanText + "\n\n[Repetitive output stopped]";
+                    AddSystemWarning($"Repetitive output detected: {hallucinationReason}. Generation halted.");
+                    _db.SaveMessage(reportChatId, "assistant", assistantTextBox.Text);
+                }
+                else if (generationStoppedByUser)
+                {
+                    assistantTextBox.Text = sb.ToString() + "\n\n[Generation stopped]";
+                    _db.SaveMessage(reportChatId, "assistant", assistantTextBox.Text);
+                }
+                else if (!generationFailed)
+                {
+                    _db.SaveMessage(reportChatId, "assistant", sb.ToString());
+                }
+
                 if (elapsedSeconds > 0 && tokenCount > 0)
                 {
                     double tps = tokenCount / elapsedSeconds;
                     statsTextBlock.Text = $"{tokenCount} tokens • {tps:F1} tok/s • {elapsedSeconds:F1}s";
                     statsTextBlock.Visibility = Visibility.Visible;
+                    
+                    if (tps < 5.0 && !_hasShownPerfWarning && !generationStoppedByUser && !hallucinationCaught && !generationFailed)
+                    {
+                        _hasShownPerfWarning = true;
+                        AddSystemWarning("Generation is unusually slow. Closing background apps may help; restarting your PC may help if the slowdown persists.");
+                    }
                 }
+
+                reportButton.Visibility = sb.Length > 0 && !generationFailed
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
 
                 _isProcessing = false;
                 _isGenerating = false;
@@ -300,8 +365,7 @@ namespace LockStepAI.Views
             ChatScroll.ScrollToEnd();
         }
 
-        // 🚨 UPDATED: Returns both the TextBox and the Stats TextBlock
-        private (TextBox messageBox, TextBlock statsBlock) AddEmptyAssistantBubble()
+        private (TextBox messageBox, TextBlock statsBlock, Button reportButton) AddEmptyAssistantBubble()
         {
             var textBox = new TextBox
             {
@@ -327,9 +391,27 @@ namespace LockStepAI.Views
                 Visibility = Visibility.Collapsed // Hidden until generation finishes
             };
 
+            var reportButton = new Button
+            {
+                Content = "Report",
+                ToolTip = "Report this response as a hallucination",
+                FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromRgb(170, 170, 170)),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Margin = new Thickness(10, 5, 0, 0),
+                Cursor = Cursors.Hand,
+                Visibility = Visibility.Collapsed
+            };
+
+            var statsPanel = new StackPanel { Orientation = Orientation.Horizontal };
+            statsPanel.Children.Add(statsBlock);
+            statsPanel.Children.Add(reportButton);
+
             var stackPanel = new StackPanel();
             stackPanel.Children.Add(textBox);
-            stackPanel.Children.Add(statsBlock);
+            stackPanel.Children.Add(statsPanel);
 
             var border = new Border
             {
@@ -345,7 +427,7 @@ namespace LockStepAI.Views
             MessagePanel.Children.Add(border);
             ChatScroll.ScrollToEnd();
 
-            return (textBox, statsBlock);
+            return (textBox, statsBlock, reportButton);
         }
     }
 }

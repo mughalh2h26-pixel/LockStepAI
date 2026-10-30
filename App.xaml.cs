@@ -5,9 +5,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media.Imaging; // For the tray icon image
-using H.NotifyIcon;                // The tray icon library
+using System.Windows.Media.Imaging; 
+using H.NotifyIcon;                
 using LockStepAI.Services;
+using System.Runtime.Intrinsics.X86;
 using LockStepAI.Views;
 using Velopack;
 using Velopack.Sources;
@@ -19,7 +20,7 @@ namespace LockStepAI
         private const string UpdateRepositoryUrl = "https://github.com/mughalh2h26-pixel/LockStepAI";
         private InferenceService? _inference;
         private OverlayWindow? _overlay;
-        private TaskbarIcon? _trayIcon; // 🚨 Tray Icon
+        private TaskbarIcon? _trayIcon; 
         private static Mutex? _mutex;
 
         [STAThread]
@@ -35,6 +36,17 @@ namespace LockStepAI
         protected override async void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+
+            if (!Avx2.IsSupported || !Bmi2.IsSupported || !Fma.IsSupported)
+            {
+                MessageBox.Show(
+                    "Your CPU is not compatible with LockStep AI.\n\n" +
+                    "The BitNet inference engine requires AVX2, BMI2, and FMA instruction sets.",
+                    "Hardware Incompatible",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                Shutdown(1);
+            }
 
             const string mutexName = "Global\\LockStepAI_SingleInstance_Mutex";
             bool createdNew;
@@ -72,7 +84,6 @@ namespace LockStepAI
                 splash.UpdateStatus("Checking AI model...");
                 var progress = new Progress<double>(percent =>
                 {
-                    splash.UpdateProgress(percent);
                     splash.UpdateStatus($"Downloading AI model: {percent:F0}%");
                 });
                 await ModelDownloader.EnsureModelAsync(progress, CancellationToken.None);
@@ -180,7 +191,7 @@ namespace LockStepAI
             _inference?.Dispose();
             ChildProcessTracker.Dispose();
             _overlay?.Close();
-            _trayIcon?.Dispose(); // Cleanup tray icon
+            _trayIcon?.Dispose(); 
             _mutex?.ReleaseMutex();
             base.OnExit(e);
         }

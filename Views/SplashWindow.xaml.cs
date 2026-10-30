@@ -13,7 +13,5 @@ namespace LockStepAI.Views
         {
             StatusText.Text = text;
         }
-
-        public void UpdateProgress(double percent) => DownloadProgress.Value = Math.Clamp(percent, 0, 100);
     }
 }

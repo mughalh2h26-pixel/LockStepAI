@@ -497,7 +497,7 @@
     "C:\\Users\\dev\\.nuget\\packages\\": {}
   },
   "project": {
-    "version": "0.2.11",
+    "version": "0.3.1",
     "restore": {
       "projectUniqueName": "D:\\projects\\projects\\FYP\\development\\LockStepAI\\LockStepAI.csproj",
       "projectName": "LockStepAI",
@@ -576,7 +576,7 @@
             "privateAssets": "none"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.402/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.403/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.4.32767]",

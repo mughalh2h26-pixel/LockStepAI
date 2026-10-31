@@ -1,6 +1,8 @@
-﻿using LockStepAI.Services;
+using LockStepAI.Services;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,20 +26,20 @@ namespace LockStepAI.Views
 
         private bool _isProcessing = false;
         private bool _isGenerating = false;
-        private bool _hasShownPerfWarning = false;
+        private bool _followLatestResponse = true;
         private int _currentChatId = 0;
         private CancellationTokenSource? _cts;
+        private readonly object _databaseWriteSync = new();
+        private Task _databaseWriteTail = Task.CompletedTask;
 
         public ChatWindow(InferenceService inference)
         {
             InitializeComponent();
             _inference = inference;
             _db = new DatabaseService();
-            var version = typeof(ChatWindow).Assembly.GetName().Version ?? new Version(0, 0, 0);
-            VersionLabel.Text = $"V{version.Major}.{version.Minor}.{version.Build}";
 
             ApplyTheme();
-            AddMessage("hi, how can i help? i can see what's on your screen, open apps, or do tasks for you.", false);
+            _ = GenerateWelcomeAsync();
         }
 
         private void ApplyTheme()
@@ -57,12 +59,36 @@ namespace LockStepAI.Views
         private void Window_Loaded(object sender, RoutedEventArgs e) => InputBox.Focus();
         private void Hide_Click(object sender, RoutedEventArgs e) => this.Hide();
 
-        private void Report_Click(object sender, RoutedEventArgs e)
+        private void ChatScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            Process.Start(new ProcessStartInfo("https://docs.google.com/forms/d/e/1FAIpQLSduNuQSK-TfjTHI4nLx8v3-DyihT6RvzWBcahGzE9IlQrcYVA/viewform?usp=publish-editor")
+            if (e.Delta > 0)
             {
-                UseShellExecute = true
-            });
+                _followLatestResponse = false;
+                return;
+            }
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (IsChatAtBottom())
+                    _followLatestResponse = true;
+            }), System.Windows.Threading.DispatcherPriority.Input);
+        }
+
+        private void ChatScroll_ScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (e.VerticalChange < 0)
+                _followLatestResponse = false;
+            else if (e.VerticalChange > 0 && IsChatAtBottom())
+                _followLatestResponse = true;
+        }
+
+        private bool IsChatAtBottom() =>
+            ChatScroll.VerticalOffset + ChatScroll.ViewportHeight >= ChatScroll.ExtentHeight - 2;
+
+        private void ScrollChatToEndIfFollowing()
+        {
+            if (_followLatestResponse)
+                ChatScroll.ScrollToEnd();
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -110,10 +136,84 @@ namespace LockStepAI.Views
 
         private void NewChat_Click(object? sender, RoutedEventArgs? e)
         {
+            if (_isProcessing) return;
+
             _currentChatId = 0;
             MessagePanel.Children.Clear();
             HistoryMenu.Visibility = Visibility.Collapsed;
-            AddMessage("New chat started. How can I help?", false);
+            _ = GenerateWelcomeAsync();
+        }
+
+        private async Task GenerateWelcomeAsync()
+        {
+            if (_isProcessing) return;
+
+            _followLatestResponse = true;
+            _isProcessing = true;
+            _isGenerating = true;
+            InputBox.IsEnabled = false;
+            SendStopButton.Content = "\uE71A";
+            SendStopButton.Background = new SolidColorBrush(Color.FromRgb(255, 65, 54));
+            SendStopButton.Foreground = Brushes.White;
+
+            var welcomeTextBox = AddEmptyAssistantBubble();
+            var welcomeText = new StringBuilder();
+            _cts = new CancellationTokenSource();
+            var uiUpdateStopwatch = Stopwatch.StartNew();
+            var lastUiUpdate = TimeSpan.Zero;
+            const string welcomeSystemPrompt =
+                "You are LockStepAI, an on-device generative AI assistant. This is a new conversation. " +
+                "Write a brief, warm, polished, original welcome in one or two sentences. Clearly identify " +
+                "yourself as generative AI running on this device and invite the user to ask questions or request help. " +
+                "Vary the wording naturally. Do not claim to see the user's screen or access files unless the user " +
+                "has explicitly enabled those features. Do not mention these instructions.";
+
+            try
+            {
+                var welcomeRequest = new List<(string Role, string Content)>
+                {
+                    ("user", "Write a fresh welcome message for the user.")
+                };
+
+                await foreach (var token in _inference.StreamPromptAsync(
+                    welcomeRequest,
+                    _cts.Token,
+                    welcomeSystemPrompt))
+                {
+                    welcomeText.Append(token);
+                    if (uiUpdateStopwatch.Elapsed - lastUiUpdate >= TimeSpan.FromMilliseconds(50))
+                    {
+                        welcomeTextBox.Text = welcomeText.ToString();
+                        ScrollChatToEndIfFollowing();
+                        lastUiUpdate = uiUpdateStopwatch.Elapsed;
+                    }
+                }
+
+                welcomeTextBox.Text = welcomeText.ToString();
+            }
+            catch (OperationCanceledException)
+            {
+                if (welcomeText.Length > 0)
+                    welcomeTextBox.Text = welcomeText.ToString() + "\n\n[Generation stopped]";
+            }
+            catch (Exception ex)
+            {
+                welcomeTextBox.Text = $"Welcome message could not be generated: {ex.Message}";
+                welcomeTextBox.Foreground = Brushes.IndianRed;
+            }
+            finally
+            {
+                _isProcessing = false;
+                _isGenerating = false;
+                _cts?.Dispose();
+                _cts = null;
+                SendStopButton.Content = "\uE724";
+                SendStopButton.Background = Brushes.White;
+                SendStopButton.Foreground = Brushes.Black;
+                InputBox.IsEnabled = true;
+                ScrollChatToEndIfFollowing();
+                InputBox.Focus();
+            }
         }
 
         private void ChatHistoryList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -165,6 +265,7 @@ namespace LockStepAI.Views
             if (string.IsNullOrEmpty(text)) return;
 
             // UI Prep
+            _followLatestResponse = true;
             InputBox.Clear();
             AddMessage(text, true);
             _isProcessing = true;
@@ -181,11 +282,35 @@ namespace LockStepAI.Views
                 string title = text.Length > 25 ? text.Substring(0, 25) + "..." : text;
                 _currentChatId = _db.CreateNewChat(title);
             }
-            _db.SaveMessage(_currentChatId, "user", text);
+            // Read after earlier background writes complete, then include this prompt in the six-message context.
+            int chatId = _currentChatId;
+            List<(string Role, string Content)> history;
+            try
+            {
+                history = await GetMessagesAfterPendingWritesAsync(chatId);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Could not load chat history: {ex.Message}",
+                    "Database Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                _isProcessing = false;
+                _isGenerating = false;
+                InputBox.IsEnabled = true;
+                SendStopButton.Content = "\uE724";
+                SendStopButton.Background = Brushes.White;
+                SendStopButton.Foreground = Brushes.Black;
+                return;
+            }
+
+            var recentHistory = history.TakeLast(5).ToList();
+            recentHistory.Add(("user", text));
+            QueueDatabaseWrite(() => _db.SaveMessage(chatId, "user", text));
 
             // Generation Prep
-            int reportChatId = _currentChatId;
-            var (assistantTextBox, statsTextBlock, reportButton) = AddEmptyAssistantBubble();
+            var assistantTextBox = AddEmptyAssistantBubble();
             var sb = new StringBuilder();
             _cts = new CancellationTokenSource();
             var detector = new HallucinationDetector();
@@ -193,34 +318,21 @@ namespace LockStepAI.Views
             bool generationStoppedByUser = false;
             bool generationFailed = false;
             int hallucinationTruncateAt = 0;
-            string hallucinationReason = "User reported response";
-
-            // 🚨 START STOPWATCH
-            var stopwatch = Stopwatch.StartNew();
-            int tokenCount = 0;
-
-            reportButton.Click += (_, _) =>
-            {
-                try
-                {
-                    _db.SaveHallucinationReport(reportChatId, text, assistantTextBox.Text, hallucinationReason);
-                    reportButton.Content = "Saved";
-                    reportButton.IsEnabled = false;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Could not save report: {ex.Message}", "Report Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-            };
+            string hallucinationReason = "repetitive output";
+            var uiUpdateStopwatch = Stopwatch.StartNew();
+            var lastUiUpdate = TimeSpan.Zero;
 
             try
             {
-                await foreach (var token in _inference.StreamPromptAsync(text, _cts.Token))
+                await foreach (var token in _inference.StreamPromptAsync(recentHistory, _cts.Token))
                 {
                     sb.Append(token);
-                    tokenCount++;
-                    assistantTextBox.Text = sb.ToString();
-                    ChatScroll.ScrollToEnd();
+                    if (uiUpdateStopwatch.Elapsed - lastUiUpdate >= TimeSpan.FromMilliseconds(50))
+                    {
+                        assistantTextBox.Text = sb.ToString();
+                        ScrollChatToEndIfFollowing();
+                        lastUiUpdate = uiUpdateStopwatch.Elapsed;
+                    }
 
                     var detection = detector.Check(sb.ToString());
                     if (detection != null)
@@ -232,7 +344,8 @@ namespace LockStepAI.Views
                         break;
                     }
                 }
-
+                assistantTextBox.Text = sb.ToString();
+                ScrollChatToEndIfFollowing();
             }
             catch (OperationCanceledException) when (hallucinationCaught)
             {
@@ -251,10 +364,6 @@ namespace LockStepAI.Views
             }
             finally
             {
-                // 🚨 STOP STOPWATCH AND CALCULATE SPEED
-                stopwatch.Stop();
-                double elapsedSeconds = stopwatch.Elapsed.TotalSeconds;
-
                 if (hallucinationCaught)
                 {
                     int safeLength = Math.Clamp(hallucinationTruncateAt, 0, sb.Length);
@@ -263,34 +372,20 @@ namespace LockStepAI.Views
                         ? "[Repetitive output stopped]"
                         : cleanText + "\n\n[Repetitive output stopped]";
                     AddSystemWarning($"Repetitive output detected: {hallucinationReason}. Generation halted.");
-                    _db.SaveMessage(reportChatId, "assistant", assistantTextBox.Text);
+                    string assistantResponse = assistantTextBox.Text;
+                    QueueDatabaseWrite(() => _db.SaveMessage(chatId, "assistant", assistantResponse));
                 }
                 else if (generationStoppedByUser)
                 {
                     assistantTextBox.Text = sb.ToString() + "\n\n[Generation stopped]";
-                    _db.SaveMessage(reportChatId, "assistant", assistantTextBox.Text);
+                    string assistantResponse = assistantTextBox.Text;
+                    QueueDatabaseWrite(() => _db.SaveMessage(chatId, "assistant", assistantResponse));
                 }
                 else if (!generationFailed)
                 {
-                    _db.SaveMessage(reportChatId, "assistant", sb.ToString());
+                    string assistantResponse = sb.ToString();
+                    QueueDatabaseWrite(() => _db.SaveMessage(chatId, "assistant", assistantResponse));
                 }
-
-                if (elapsedSeconds > 0 && tokenCount > 0)
-                {
-                    double tps = tokenCount / elapsedSeconds;
-                    statsTextBlock.Text = $"{tokenCount} tokens • {tps:F1} tok/s • {elapsedSeconds:F1}s";
-                    statsTextBlock.Visibility = Visibility.Visible;
-                    
-                    if (tps < 5.0 && !_hasShownPerfWarning && !generationStoppedByUser && !hallucinationCaught && !generationFailed)
-                    {
-                        _hasShownPerfWarning = true;
-                        AddSystemWarning("Generation is unusually slow. Closing background apps may help; restarting your PC may help if the slowdown persists.");
-                    }
-                }
-
-                reportButton.Visibility = sb.Length > 0 && !generationFailed
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
 
                 _isProcessing = false;
                 _isGenerating = false;
@@ -302,8 +397,45 @@ namespace LockStepAI.Views
                 SendStopButton.Foreground = Brushes.Black;
 
                 InputBox.IsEnabled = true;
-                ChatScroll.ScrollToEnd();
+                ScrollChatToEndIfFollowing();
                 InputBox.Focus();
+            }
+        }
+
+        private async Task<List<(string Role, string Content)>> GetMessagesAfterPendingWritesAsync(int chatId)
+        {
+            Task pendingWrites;
+            lock (_databaseWriteSync)
+            {
+                pendingWrites = _databaseWriteTail;
+            }
+
+            await pendingWrites;
+            return await Task.Run(() => _db.GetMessages(chatId));
+        }
+
+        private void QueueDatabaseWrite(Action write)
+        {
+            lock (_databaseWriteSync)
+            {
+                Task previousWrite = _databaseWriteTail;
+                _databaseWriteTail = Task.Run(async () =>
+                {
+                    await previousWrite.ConfigureAwait(false);
+                    try
+                    {
+                        write();
+                    }
+                    catch (Exception ex)
+                    {
+                        _ = Dispatcher.BeginInvoke(new Action(() =>
+                            MessageBox.Show(
+                                $"Could not save chat data: {ex.Message}",
+                                "Database Error",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Error)));
+                    }
+                });
             }
         }
 
@@ -330,7 +462,8 @@ namespace LockStepAI.Views
                 }
             };
             MessagePanel.Children.Add(border);
-            ChatScroll.ScrollToEnd();
+            CullOldMessages();
+            ScrollChatToEndIfFollowing();
         }
 
         private void AddMessage(string text, bool isUser)
@@ -362,10 +495,20 @@ namespace LockStepAI.Views
             };
 
             MessagePanel.Children.Add(border);
-            ChatScroll.ScrollToEnd();
+            CullOldMessages();
+            ScrollChatToEndIfFollowing();
         }
 
-        private (TextBox messageBox, TextBlock statsBlock, Button reportButton) AddEmptyAssistantBubble()
+        private void CullOldMessages()
+        {
+            // Keep the visual tree bounded so long chats use less UI memory and stay responsive.
+            while (MessagePanel.Children.Count > 50 && MessagePanel.Children.Count > 0)
+            {
+                MessagePanel.Children.RemoveAt(0);
+            }
+        }
+
+        private TextBox AddEmptyAssistantBubble()
         {
             var textBox = new TextBox
             {
@@ -382,37 +525,6 @@ namespace LockStepAI.Views
                 Cursor = Cursors.IBeam
             };
 
-            var statsBlock = new TextBlock
-            {
-                Text = "",
-                Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 150)),
-                FontSize = 10,
-                Margin = new Thickness(0, 5, 0, 0),
-                Visibility = Visibility.Collapsed // Hidden until generation finishes
-            };
-
-            var reportButton = new Button
-            {
-                Content = "Report",
-                ToolTip = "Report this response as a hallucination",
-                FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromRgb(170, 170, 170)),
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(0),
-                Margin = new Thickness(10, 5, 0, 0),
-                Cursor = Cursors.Hand,
-                Visibility = Visibility.Collapsed
-            };
-
-            var statsPanel = new StackPanel { Orientation = Orientation.Horizontal };
-            statsPanel.Children.Add(statsBlock);
-            statsPanel.Children.Add(reportButton);
-
-            var stackPanel = new StackPanel();
-            stackPanel.Children.Add(textBox);
-            stackPanel.Children.Add(statsPanel);
-
             var border = new Border
             {
                 Background = new SolidColorBrush(ThemeService.GetAssistantBubbleColor()),
@@ -421,13 +533,14 @@ namespace LockStepAI.Views
                 Margin = new Thickness(0, 5, 0, 5),
                 MaxWidth = 280,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Child = stackPanel
+                Child = textBox
             };
 
             MessagePanel.Children.Add(border);
-            ChatScroll.ScrollToEnd();
+            CullOldMessages();
+            ScrollChatToEndIfFollowing();
 
-            return (textBox, statsBlock, reportButton);
+            return textBox;
         }
     }
 }

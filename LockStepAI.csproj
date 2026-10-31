@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
-    <Version>0.2.11</Version>
+    <Version>0.3.1</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -20,8 +20,8 @@
     <None Remove="Assets\icon.ico" />
     <None Remove="Assets\icon.png" />
     <None Update="BitNet\ggml-model-i2_s.gguf">
-      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
     <Content Include="BitNet\**\*" Exclude="BitNet\ggml-model-i2_s.gguf">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,6 +9,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LockStepAI.Services
@@ -29,11 +31,13 @@ namespace LockStepAI.Services
         private readonly HttpClient _healthClient = new() { Timeout = TimeSpan.FromSeconds(2) };
         private readonly HttpClient _inferenceClient = new() { Timeout = TimeSpan.FromMinutes(5) };
 
-        public async Task<bool> StartAsync()
+        public async Task<bool> StartAsync(CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string serverExe = Path.Combine(baseDir, "BitNet", "llama-server.exe");
-            string modelPath = ModelDownloader.ModelPath;
+            string modelPath = Path.Combine(baseDir, "BitNet", "ggml-model-i2_s.gguf");
 
             // Get a guaranteed available port from Windows
             _serverPort = GetAvailablePort();
@@ -124,7 +128,7 @@ namespace LockStepAI.Services
                 _serverProcess.BeginErrorReadLine();
 
                 const int startupTimeoutSeconds = 300;
-                bool ready = await WaitForServerAsync(startupTimeoutSeconds);
+                bool ready = await WaitForServerAsync(startupTimeoutSeconds, cancellationToken);
 
                 if (ready)
                 {
@@ -136,6 +140,13 @@ namespace LockStepAI.Services
                 }
 
                 return ready;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                StartupDiagnostic = "Inference server startup was cancelled.";
+                LogStartup(StartupDiagnostic);
+                StopServerProcess();
+                throw;
             }
             catch (Exception ex)
             {
@@ -191,13 +202,15 @@ namespace LockStepAI.Services
             }
         }
 
-        private async Task<bool> WaitForServerAsync(int timeoutSeconds)
+        private async Task<bool> WaitForServerAsync(int timeoutSeconds, CancellationToken cancellationToken)
         {
             var stopwatch = Stopwatch.StartNew();
             string lastProbeFailure = "No health response received yet.";
 
             while (stopwatch.Elapsed < TimeSpan.FromSeconds(timeoutSeconds))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (_serverProcess == null)
                 {
                     StartupDiagnostic = "The server process was not created.";
@@ -216,17 +229,21 @@ namespace LockStepAI.Services
                 try
                 {
                     // Health checks typically don't require the API key
-                    using var response = await _healthClient.GetAsync($"http://127.0.0.1:{_serverPort}/health");
+                    using var response = await _healthClient.GetAsync(
+                        $"http://127.0.0.1:{_serverPort}/health",
+                        cancellationToken);
                     if (response.IsSuccessStatusCode)
                     {
                         LogStartup($"Health check succeeded with HTTP {(int)response.StatusCode} after {stopwatch.Elapsed.TotalSeconds:F1} seconds.");
                         return true;
                     }
 
-                    string body = await response.Content.ReadAsStringAsync();
+                    string body = await response.Content.ReadAsStringAsync(cancellationToken);
                     lastProbeFailure = $"Health endpoint returned HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {body}";
                 }
-                catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+                catch (Exception ex) when (
+                    !cancellationToken.IsCancellationRequested &&
+                    (ex is HttpRequestException || ex is TaskCanceledException))
                 {
                     lastProbeFailure = $"Health request failed: {ex.Message}";
                 }
@@ -234,7 +251,7 @@ namespace LockStepAI.Services
                 if ((int)stopwatch.Elapsed.TotalSeconds % 10 == 0)
                     LogStartup($"Still waiting ({stopwatch.Elapsed.TotalSeconds:F0}s). {lastProbeFailure}");
 
-                await Task.Delay(1000);
+                await Task.Delay(1000, cancellationToken);
             }
 
             StartupDiagnostic = $"Inference server startup timed out after {timeoutSeconds} seconds.{Environment.NewLine}{lastProbeFailure}{Environment.NewLine}{GetServerOutputTail()}";
@@ -255,15 +272,26 @@ namespace LockStepAI.Services
             catch { }
         }
 
-        public async IAsyncEnumerable<string> StreamPromptAsync(string prompt, [System.Runtime.CompilerServices.EnumeratorCancellation] System.Threading.CancellationToken cancellationToken)
+        public async IAsyncEnumerable<string> StreamPromptAsync(
+            List<(string Role, string Content)> recentHistory,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken,
+            string? systemPrompt = null)
         {
+            var messages = new List<object>
+            {
+                new
+                {
+                    role = "system",
+                    content = systemPrompt ?? "You are LockStepAI, a helpful Windows assistant."
+                }
+            };
+            messages.AddRange(recentHistory
+                .Where(message => message.Role == "user" || message.Role == "assistant")
+                .Select(message => (object)new { role = message.Role, content = message.Content }));
+
             var payload = new
             {
-                messages = new[]
-                {
-                    new { role = "system", content = "You are LockStep AI, a helpful Windows assistant." },
-                    new { role = "user", content = prompt }
-                },
+                messages,
                 n_predict = 512,
                 temperature = 0.7,
                 stream = true
@@ -306,6 +334,30 @@ namespace LockStepAI.Services
                 catch { }
 
                 if (!string.IsNullOrEmpty(token)) yield return token;
+            }
+        }
+
+        private void StopServerProcess()
+        {
+            if (_serverProcess == null) return;
+
+            try
+            {
+                if (!_serverProcess.HasExited)
+                {
+                    _serverProcess.Kill(entireProcessTree: true);
+                    _serverProcess.WaitForExit();
+                    LogStartup("Stopped llama-server after startup cancellation.");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // The process may exit between checking HasExited and killing it.
+            }
+            catch (Win32Exception ex)
+            {
+                StartupDiagnostic += $"{Environment.NewLine}Could not stop llama-server: {ex.Message}";
+                LogStartup($"Could not stop llama-server after cancellation: {ex.Message}");
             }
         }
 

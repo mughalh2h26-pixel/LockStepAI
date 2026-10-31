@@ -29,7 +29,14 @@ namespace LockStepAI.Views
         }
 
         private void OpenChat_Click(object sender, RoutedEventArgs e) => ShowChat();
+        private void About_Click(object sender, RoutedEventArgs e) => ShowAbout();
         private void Quit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
+
+        public void ShowAbout()
+        {
+            var aboutWindow = new AboutWindow();
+            aboutWindow.ShowDialog();
+        }
 
         private void ToggleChat()
         {

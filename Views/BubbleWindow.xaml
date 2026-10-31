@@ -1,7 +1,7 @@
 ﻿<Window x:Class="LockStepAI.Views.BubbleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LockStep Launcher" Width="80" Height="80"
+        Title="LockStepAI" Width="80" Height="80"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         WindowStartupLocation="Manual" MouseLeftButtonDown="Bubble_MouseLeftButtonDown"
@@ -10,7 +10,8 @@
     <Window.ContextMenu>
         <ContextMenu>
             <MenuItem Header="Open Chat" Click="OpenChat_Click"/>
-            <MenuItem Header="Quit LockStep" Click="Quit_Click"/>
+            <MenuItem Header="About" Click="About_Click"/>
+            <MenuItem Header="Quit LockStepAI" Click="Quit_Click"/>
         </ContextMenu>
     </Window.ContextMenu>
 

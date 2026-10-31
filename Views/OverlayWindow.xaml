@@ -1,7 +1,7 @@
 ﻿<Window x:Class="LockStepAI.Views.OverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LockStep Overlay"
+        Title="LockStepAI Overlay"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="{x:Null}"

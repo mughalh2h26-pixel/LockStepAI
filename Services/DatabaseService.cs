@@ -14,13 +14,22 @@ namespace LockStepAI.Services
             string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string folder = Path.Combine(appData, "LockStepAI");
             Directory.CreateDirectory(folder);
-            _dbPath = Path.Combine(folder, "lockstep.db");
+            string legacyDbPath = Path.Combine(folder, "lockstep.db");
+            _dbPath = Path.Combine(folder, "LockStepAI.db");
+            if (!File.Exists(_dbPath) && File.Exists(legacyDbPath))
+            {
+                using var legacyConnection = new SqliteConnection($"Data Source={legacyDbPath};Mode=ReadOnly;Pooling=True");
+                using var newConnection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
+                legacyConnection.Open();
+                newConnection.Open();
+                legacyConnection.BackupDatabase(newConnection);
+            }
             Initialize();
         }
 
         private void Initialize()
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = @"
@@ -50,7 +59,7 @@ namespace LockStepAI.Services
 
         public int CreateNewChat(string title)
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO Chats (Title) VALUES ($title); SELECT last_insert_rowid();";
@@ -60,7 +69,7 @@ namespace LockStepAI.Services
 
         public void UpdateChatTitle(int chatId, string newTitle)
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "UPDATE Chats SET Title = $title WHERE Id = $id;";
@@ -71,7 +80,7 @@ namespace LockStepAI.Services
 
         public void DeleteChat(int chatId)
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             // Foreign key cascade will delete messages automatically if PRAGMA foreign_keys = ON;
@@ -83,7 +92,7 @@ namespace LockStepAI.Services
 
         public void SaveMessage(int chatId, string role, string content)
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO Messages (ChatId, Role, Content) VALUES ($c, $r, $m);";
@@ -95,7 +104,7 @@ namespace LockStepAI.Services
 
         public void SaveHallucinationReport(int chatId, string prompt, string response, string reason)
         {
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO HallucinationReports (ChatId, Prompt, Response, Reason) VALUES ($chatId, $prompt, $response, $reason);";
@@ -109,7 +118,7 @@ namespace LockStepAI.Services
         public List<(int Id, string Title)> GetChats()
         {
             var list = new List<(int, string)>();
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
             command.CommandText = "SELECT Id, Title FROM Chats ORDER BY CreatedAt DESC;";
@@ -121,10 +130,19 @@ namespace LockStepAI.Services
         public List<(string Role, string Content)> GetMessages(int chatId)
         {
             var list = new List<(string, string)>();
-            using var connection = new SqliteConnection($"Data Source={_dbPath}");
+            using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=True");
             connection.Open();
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT Role, Content FROM Messages WHERE ChatId = $id ORDER BY Id ASC;";
+            command.CommandText = @"
+                SELECT Role, Content
+                FROM (
+                    SELECT Role, Content, Id
+                    FROM Messages
+                    WHERE ChatId = $id
+                    ORDER BY Id DESC
+                    LIMIT 50
+                )
+                ORDER BY Id ASC;";
             command.Parameters.AddWithValue("$id", chatId);
             using var reader = command.ExecuteReader();
             while (reader.Read()) list.Add((reader.GetString(0), reader.GetString(1)));

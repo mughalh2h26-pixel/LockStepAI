@@ -40,7 +40,7 @@ namespace LockStepAI
             if (!Avx2.IsSupported || !Bmi2.IsSupported || !Fma.IsSupported)
             {
                 MessageBox.Show(
-                    "Your CPU is not compatible with LockStep AI.\n\n" +
+                    "Your CPU is not compatible with LockStepAI.\n\n" +
                     "The BitNet inference engine requires AVX2, BMI2, and FMA instruction sets.",
                     "Hardware Incompatible",
                     MessageBoxButton.OK,
@@ -54,7 +54,7 @@ namespace LockStepAI
 
             if (!createdNew)
             {
-                var result = MessageBox.Show("LockStep AI is already running.\n\nClose existing instance and start a new one?", "LockStep AI", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                var result = MessageBox.Show("LockStepAI is already running.\n\nClose existing instance and start a new one?", "LockStepAI", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (result == MessageBoxResult.Yes)
                 {
                     var current = Process.GetCurrentProcess();
@@ -76,30 +76,26 @@ namespace LockStepAI
             ChildProcessTracker.Initialize();
 
             SQLitePCL.Batteries_V2.Init();
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            using var startupCancellation = new CancellationTokenSource();
             var splash = new SplashWindow();
+            splash.CancelRequested += (_, _) => startupCancellation.Cancel();
             splash.Show();
-
-            try
-            {
-                splash.UpdateStatus("Checking AI model...");
-                var progress = new Progress<double>(percent =>
-                {
-                    splash.UpdateStatus($"Downloading AI model: {percent:F0}%");
-                });
-                await ModelDownloader.EnsureModelAsync(progress, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                splash.Close();
-                MessageBox.Show($"Failed to download the AI model: {ex.Message}", "Setup Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                Shutdown(1);
-                return;
-            }
 
             splash.UpdateStatus("Loading AI engine...");
             var inference = new InferenceService();
             _inference = inference;
-            bool ok = await inference.StartAsync();
+            bool ok;
+            try
+            {
+                ok = await inference.StartAsync(startupCancellation.Token);
+            }
+            catch (OperationCanceledException) when (startupCancellation.IsCancellationRequested)
+            {
+                if (splash.IsVisible) splash.Close();
+                Shutdown();
+                return;
+            }
 
             if (!ok)
             {
@@ -116,6 +112,7 @@ namespace LockStepAI
                 return;
             }
 
+            splash.SetCancelEnabled(false);
             await inference.WarmupAsync();
 
             try
@@ -130,17 +127,20 @@ namespace LockStepAI
                 // SYSTEM TRAY 
                 _trayIcon = new TaskbarIcon
                 {
-                    ToolTipText = "LockStep AI",
+                    ToolTipText = "LockStepAI",
                     IconSource = new BitmapImage(new Uri("pack://application:,,,/Assets/icon.ico")),
                 };
 
                 var contextMenu = new ContextMenu();
                 var showItem = new MenuItem { Header = "Open Chat" };
                 showItem.Click += (s, args) => { bubbleWindow.ShowChat(); };
+                var aboutItem = new MenuItem { Header = "About" };
+                aboutItem.Click += (s, args) => { bubbleWindow.ShowAbout(); };
                 var quitItem = new MenuItem { Header = "Quit" };
                 quitItem.Click += (s, args) => Application.Current.Shutdown();
 
                 contextMenu.Items.Add(showItem);
+                contextMenu.Items.Add(aboutItem);
                 contextMenu.Items.Add(quitItem);
                 _trayIcon.ContextMenu = contextMenu;
 

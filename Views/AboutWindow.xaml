@@ -1,0 +1,39 @@
+<Window x:Class="LockStepAI.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About LockStepAI" Width="410" Height="360"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#0A0A0A" Foreground="White">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="LockStepAI" FontSize="25" FontWeight="Bold"/>
+            <TextBlock Text="Secure, on-device AI" FontSize="14" Foreground="#78C7FF" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Height="1" Background="#333333" Margin="0,20,0,18"/>
+
+        <StackPanel Grid.Row="2" VerticalAlignment="Top">
+            <TextBlock Text="Designed to keep your conversations private."
+                       FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="Prompts and responses are processed by the AI model running locally on this device, not sent to a cloud AI service."
+                       Foreground="#C4C4C4" FontSize="12" TextWrapping="Wrap" LineHeight="19" Margin="0,10,0,0"/>
+            <TextBlock Text="Free and open-source software, distributed under the GNU General Public License v3.0 (GPLv3). Provided “as is,” without warranties of any kind. The developers accept no liability for damages arising from its use."
+                       Foreground="#888888" FontSize="11" TextWrapping="Wrap" LineHeight="16" Margin="0,14,0,0"/>
+        </StackPanel>
+
+        <Button Grid.Row="3" Content="Report an issue" Click="Report_Click"
+                HorizontalAlignment="Left" Padding="14,8" Margin="0,16,0,14"
+                Background="#FFFFFF" Foreground="#111111" BorderThickness="0"
+                Cursor="Hand"/>
+
+        <TextBlock x:Name="VersionLabel" Grid.Row="4" Foreground="#888888" FontSize="11"/>
+    </Grid>
+</Window>
